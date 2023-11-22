@@ -1,0 +1,418 @@
+---
+title: "Pokemon"
+author: "u2056802"
+date: '2023-09-21'
+output: pdf_document
+---
+
+This is an analysis for a dataset of all the pokemon from generations 1-7. 
+The objective is to find what types are better choices according to different variables,
+such as "number of weaknesses" as well as based on their stats like hp, attack, etc.
+
+1. Dataset description
+
+The dataset pokemon.csv is obtained from Kaggle (link)
+
+It has 801 observations.
+
+41 variables
+  1. Abilities
+  2-19 Type effectiveness
+  20,26,29 Attack, Defense, HP
+  34,35,36 Sp Attack, Sp Defense, Speed
+  21. Base Egg steps
+  22. Base happiness
+  23. Base total
+  24. Capture rate
+  25. Classification
+  27. Experience growth
+  28. Height in meters
+  30,31 Japanese name, (english) name
+  32. Percentage male
+  33. Pokedex number
+  37,38 Type1, type2
+  39. Weight in kg
+  40. Generation
+  41. Legendary (bool)
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+```
+
+
+Data :
+
+```{r}
+rawdata <- read.csv("pokemon.csv")
+cols <- c('yellow4','gray17','slateblue1','gold1','rosybrown1','tomato3','orangered1',
+          'cadetblue1','slateblue4','green2','darkgoldenrod','turquoise','snow3',
+          'purple','violetred1','tan4','gray79','royalblue1')
+color_mapping <- c("flying" = "cadetblue1",
+                   "fairy" = "rosybrown1",
+                   "ice" = "turquoise",
+                   "steel" = "gray79",
+                   "dragon" = "slateblue1",
+                   "ghost" = "slateblue4",
+                   "fighting" = "tomato3",
+                   "dark" = "gray17",
+                   "ground" = "darkgoldenrod",
+                   "poison" = "purple",
+                   "electric" = "gold1",
+                   "rock" = "tan4",
+                   "fire" = "orangered1",
+                   "psychic" = "violetred1",
+                   "bug" = "yellow4",
+                   "grass" = "green2",
+                   "normal" = "snow3",
+                   "water" = "royalblue1",
+                   "none" = "beige")
+```
+
+Data cleaning
+
+```{r}
+data <- rawdata %>%
+  #replace empty with none for type2
+  mutate(type2 = ifelse(type2 == '' | type2==type1,"none",type2)) %>%
+  #colors
+  mutate(type1color = color_mapping[type1]) %>%
+  mutate(type2color = color_mapping[type2]) 
+
+```
+
+
+EDA STAGE
+
+
+```{r}
+counts <- table(data$type1)
+countdf <- as.data.frame(counts)
+countdf <- countdf[order(countdf$Freq), ]
+```
+
+```{r}
+barplot(countdf$Freq, horiz=TRUE,beside=TRUE,names.arg=countdf$Var1,col=color_mapping,
+        cex.names=0.7, las=2, xlim=c(0,120),main="Frequency of Primary Type (gens 1-7)")
+
+```
+
+```{r}
+counts2 <- table(data$type2)
+countdf2 <- as.data.frame(counts2)
+countdf2 <- countdf2[order(countdf2$Freq), ]
+print(countdf2)
+```
+
+```{r}
+cat(countdf2[which.max(countdf2$Freq), ]$Freq,"out of",nrow(data),"pokemon don't have a secondary type.", "\n")
+cat(countdf2[countdf2$Var1 == "flying",]$Freq, "pokemon have flying as its secondary type.","\n")
+```
+
+
+ANALYSIS STAGE
+
+type analysis 
+
+Type and Weight correlation:
+
+```{r}
+total_mean <- mean(data$weight_kg, na.rm=TRUE)
+mean_by_type <- aggregate(data$weight_kg, by = list(data$type1), FUN = mean, na.rm=TRUE)
+mean_by_type[order(mean_by_type$x),]
+```
+
+Based on the rank statistics, the types dragon ground and steel have the highest average weight.
+
+```{r}
+summary(aov(data$weight_kg ~ data$type1 + data$type2))
+```
+
+```{r}
+tukey <- TukeyHSD(aov(data$weight_kg ~ data$type1 + data$type2))
+p_values_type1 <- tukey$`data$type1`[, "p adj"]
+
+
+p_values_type2 <- tukey$`data$type2`[, "p adj"]
+
+
+tukey_result_type1_sorted <- tukey$`data$type1`[order(p_values_type1), ]
+low_p_values_type1 <- tukey_result_type1_sorted[tukey_result_type1_sorted[, "p adj"] <= 0.05, ]
+
+
+tukey_result_type2_sorted <- tukey$`data$type2`[order(p_values_type2), ]
+low_p_values_type2 <- tukey_result_type2_sorted[tukey_result_type2_sorted[, "p adj"] <= 0.05, ]
+
+
+print("Low p-values for type1 (close to 0):")
+print(low_p_values_type1)
+
+print("Low p-values for type2 (close to 0):")
+print(low_p_values_type2)
+
+```
+
+```{r}
+tukey_row1 <- tukey$`data$type1`[, "p adj"]
+tukey_row2 <- tukey$'data$type2'[, "p adj"]
+tukey_row2
+
+
+```
+
+
+
+```{r}
+data$type1 <- factor(data$type1, levels = unique(data$type1))
+```
+
+hp and defense by type
+
+legendary analysis
+
+- legendary influences weight, height, stats
+
+```{r}
+legendaries <- data[data$is_legendary == TRUE, ]
+non_legendaries <- data[data$is_legendary == FALSE, ]
+
+main_stats <- c("hp","attack","sp_attack","defense","sp_defense","speed")
+non_main_stats <- c("height_m","weight_kg")
+
+t_test <- lapply(c(main_stats,non_main_stats), function(var){
+  test_res <- t.test(legendaries[[var]], non_legendaries[[var]])
+  return(test_res)
+})
+
+names(t_test) <- c('hp', 'atk', 'sp.atk', 'def', 'sp.def', 'speed', 'height', 'weight')
+t_test
+```
+
+Observing the differences of average for each of the stats, its evident that legendaries have over-buffed stats.
+
+
+
+Number of weaknesses
+
+```{r}
+calculate_weakness_breakdown <- function(data) {
+  # initialize variables
+  unique_types <- character(0)
+  weakness_counts <- integer(0)
+
+  # iterate 
+  for (i in 1:nrow(data)) {
+    # type information
+    type1 <- data$type1[i]
+    type2 <- data$type2[i]
+
+    #key for unique type or combination of types
+    type_key <- paste(c(type1, type2), collapse = "-")
+
+    # check if type has been encountered
+    if (!(type_key %in% unique_types)) {
+      # update set of encountered types
+      unique_types <- c(unique_types, type_key)
+
+      # identify columns "against_" and having a numeric value
+      against_columns <- grep("^against_", names(data), value = TRUE)
+
+      # sum where value higher or equal than 2
+      weak_against_count <- sum(data[i, against_columns] >= 2, na.rm = TRUE)
+
+      # append the results to the vectors
+      weakness_counts <- c(weakness_counts, weak_against_count)
+    }
+  }
+
+  # Create a data frame with the results
+  result_df <- data.frame(Type = unique_types, WeaknessCount = weakness_counts)
+  result_df <- result_df[order(result_df$WeaknessCount), ]
+  
+  return(result_df)
+}
+result <- calculate_weakness_breakdown(data)
+print(result)
+```
+
+type effectiveness is one of the key points when playing pokemon. 
+the average number of weaknesses a pokemon has is 3.766
+The 7 strongest pokemon types, which have only one weakness, are:
+
+  single types
+electric (only weak to ground) x2
+normal (only weak to fighting) x2
+  dual types
+normal-dark (only weak to fighting) x4
+water-ground (only weak to grass) x4
+bug-steel (only weak to fire) x4
+dark-ghost (only weak to psychic) x4 Sableye
+poison-dark (only weak to ground) x4 
+
+The 6 weakest pokemon types, with 7 distinct type weaknesses, are:
+rock-fighting (legendary Terrakion)
+grass-ice 
+rock-psychic
+grass-dark
+psychic-grass (legendary Celebi, Exeggcute and Exeggutor)
+rock-dark (Tyranitar)
+
+however the number of weaknesses is not always that important. 
+For example, in the case of Tyranitar:
+
+```{r}
+hp_percentile <- ecdf(data$hp)
+attack_percentile <- ecdf(data$attack)
+sp_attack_percentile <- ecdf(data$sp_attack)
+defense_percentile <- ecdf(data$defense)
+sp_defense_percentile <- ecdf(data$sp_defense)
+speed_percentile <- ecdf(data$speed)
+
+print(paste("HP", data[248,"hp"], "is in the", round(hp_percentile(data[248,"hp"]) * 100, 2), "th percentile"))
+print(paste("Attack", data[248,"attack"], "is in the", round(attack_percentile(data[248,"attack"]) * 100, 2), "th percentile"))
+print(paste("Special Attack", data[248,"sp_attack"], "is in the", round(sp_attack_percentile(data[248,"sp_attack"]) * 100, 2), "th percentile"))
+print(paste("Defense", data[248,"defense"], "is in the", round(defense_percentile(data[248,"defense"]) * 100, 2), "th percentile"))
+print(paste("Special Defense", data[248,"sp_defense"], "is in the", round(sp_defense_percentile(data[248,"sp_defense"]) * 100, 2), "th percentile"))
+print(paste("Speed", data[248,"speed"], "is in the", round(speed_percentile(data[248,"speed"]) * 100, 2), "th percentile"))
+```
+
+he has really good stats, particularly really high base attack and special attack, 
+speed is not great, but has a lot of weaknesses.
+however, many pokemon can learn abilities outside their two types, and Tyrannitar is no exception.
+He can learn by TM flying, steel, fighting, fire, ice, type moves to counter its weaknesses.
+
+stats distributions
+
+```{r}
+par(mfrow = c(1, 1))  # layout
+
+stats <- c("hp", "attack", "defense", "sp_attack", "sp_defense", "speed")
+
+overall_min <- min(c(data$speed, data$hp, data$attack, data$defense, data$sp_attack, data$sp_defense), na.rm = TRUE)
+overall_max <- max(c(data$speed, data$hp, data$attack, data$defense, data$sp_attack, data$sp_defense), na.rm = TRUE)
+
+
+plot(1, type = "n", xlab = "stats", ylab = "Frequency Density", xlim = c(overall_min, overall_max+10), ylim=c(0,0.019))
+
+# plot each 
+for (i in seq_along(stats)) {
+  stat <- stats[i]
+  density_values <- density(data[, stat], na.rm = TRUE)
+  if (i == 2){
+    lines(density_values$x, density_values$y, col = "goldenrod1")
+  } else if (i == 4) {
+    lines(density_values$x, density_values$y, col = "cyan3")
+  } else {
+    lines(density_values$x, density_values$y, col = rainbow(length(stats))[i])
+  }
+}
+
+# Add legend
+title("Distributions of main stats")
+adapted_cols <- c("red","goldenrod1","green","cyan3","blue","magenta")
+legend("topright", legend = stats, col = adapted_cols, lty = 1, cex = 0.8, pch=20)
+
+# add point at max 
+for (i in seq_along(stats)) {
+  stat <- stats[i]
+  density_values <- density(data[, stat], na.rm = TRUE)
+  
+  # find peak values where density is maximum
+  peak_x <- density_values$x[which.max(density_values$y)]
+  peak_y <- max(density_values$y)
+  
+  # Plot point at peak value
+  if (i == 2) {
+    points(peak_x, max(density_values$y), pch = 20, col = "goldenrod1", cex = 1.5)
+  } else if (i == 4){
+    points(peak_x, max(density_values$y), pch = 20, col = "cyan3", cex = 1.5)
+  } else {
+    points(peak_x, max(density_values$y), pch = 20, col = rainbow(length(stats))[i], cex = 1.5)
+  }
+  
+  # Adjust text position for yellow and light blue points
+  text_x <- peak_x
+  text_y <- peak_y
+  if (i == 2) {
+    text_x <- peak_x +5  # Adjust the x-coordinate for better visibility
+    text_color <- "goldenrod1"  # Use black text for better contrast
+    # Add a line pointing to the dot
+  } else if (i == 4){
+    text_x <- peak_x -2
+    text_color <- "cyan3"
+  } else {
+    text_x <- peak_x
+    text_color <- rainbow(length(stats))[i]
+  }
+  
+  #label
+  text(text_x, text_y, label = sprintf("%.2f", peak_x), pos = 3, col = text_color, cex = 0.8)
+}
+
+```
+
+```{r}
+avg_stats_by_type <- function(data, target_type){
+  subset_data <- data[data$type1 == target_type | data$type2 == target_type, ]
+  avg_stats <- colMeans(subset_data[,main_stats])
+  return(avg_stats)
+}
+all_types <- unique(c(data$type1, data$type2))
+all_types <- all_types[all_types != "none"]
+type_stats <- list()
+# Loop 
+for (type_to_test in all_types) {
+  avg_stats <- avg_stats_by_type(data, type_to_test)
+  type_stats[[type_to_test]] <- c(Type = type_to_test, avg_stats)
+}
+
+result_df <- bind_rows(type_stats)
+result_df[, main_stats] <- lapply(result_df[, main_stats], as.numeric)
+
+print(result_df)
+```
+
+```{r}
+percentile_functions <- list(
+  hp = hp_percentile,
+  attack = attack_percentile,
+  sp_attack = sp_attack_percentile,
+  defense = defense_percentile,
+  sp_defense = sp_defense_percentile,
+  speed = speed_percentile
+)
+
+for (stat in main_stats) {
+  cat("\nStat:", stat, "\n")
+  
+  percentile_function <- percentile_functions[[stat]]
+  # Iterate over types
+  for (type in all_types) {
+    values <- result_df[[stat]][result_df$Type == type]
+    
+    cat(paste(stat, values, "is in the", 
+              round(percentile_function(values) * 100, 2), "th percentile for", type), "\n")
+  }
+}
+```
+
+```{r}
+densities <- density(data$hp)
+plot(densities$x, densities$y, type="l", lwd=2, main="Percentiles of HP by type",xlab="HP",ylab="frequency density")
+segments(x0=82, x1=82, y0=0,y1=0.011, col="slateblue1",lwd=3)
+segments(x0=56.5,x1=56.5,y0=0, y1=0.016, col="yellow4", lwd=3)
+text(x=130, y=0.012, col="slateblue1", cex=0.6,labels="dragon type is in the 76.53th percentile")
+text(x=16, y=0.017, col="yellow4", cex=0.6, labels="bug type is in the 32.96th percentile")
+```
+
+```{r}
+densities <- density(data$attack)
+plot(densities$x, densities$y, type="l", lwd=2, main="Percentiles of Attack by type",xlab="Attack",ylab="frequency density")
+segments(x0=103.3, x1=103.3, y0=0,y1=0.0076, col="tomato3",lwd=3)
+segments(x0=62.9,x1=62.9,y0=0, y1=0.0124, col="rosybrown1", lwd=3)
+text(x=152, y=0.008, col="tomato3", cex=0.8,labels="fighting type is in the 79.65th percentile")
+text(x=18, y=0.012, col="rosybrown1", cex=0.8, labels="fairy type is in the 35.21th percentile")
+```
+
